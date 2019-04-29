@@ -11,6 +11,7 @@ console.log(aa, aa.a);
 console.log(clone(null))
 console.log(clone(undefined))
 console.log(clone(NaN))
+console.log(clone({a:1,b:2,c:[1,2,3,{a:11,b:22,c:[111,222,{ a:1111,b:2222 }]},4]}))
 
 let c = [0];
 c.push(c);

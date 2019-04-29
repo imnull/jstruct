@@ -1,134 +1,111 @@
-const O = Object.prototype.toString;
-const T = v => O.call(v).slice(8, -1);
-const TT = (a, b) => (a = T(a), a === T(b) ? a : '*');
+const clone = require('./clone');
+const compare = require('./compare');
+const check = require('./check');
+const path = require('./path');
 
-const COMPARE = {
-    'Array': (a, b, result, parentPath, trap) => {
-        if(trap.indexOf(b) > -1){
-            return;
-        }
-        trap.push(b);
-        let st = 1;
-        for(let i = 0, len = Math.max(a.length, b.length); i < len; i++){
-            _compare(a[i], b[i], result, [...parentPath, i], trap);
-        }
-    },
-    'Object': (a, b, result, parentPath, trap) => {
-        if(trap.indexOf(b) > -1){
-            return;
-        }
-        trap.push(b);
-        let aKeys = Object.keys(a);
-        let bKeys = Object.keys(b);
-        [...aKeys, ...bKeys].filter((v, i, vv) => vv.indexOf(v) === i).forEach(i => {
-            _compare(a[i], b[i], result, [...parentPath, i], trap)
-        })
-    }
-};
-
-const _compare = (a, b, result = [], path = [], trap = []) => {
-    let t = TT(a, b);
-    if(t === '*' || !(t in COMPARE)){
-        // 0: a/b相等
-        // 1: a/b不等，且a缺失
-        // 2: a/b不等，a存在，但b缺失
-        // 3: a/b不等，且a/b存在  
-        let status = a === b ? 0 : a === undefined ? 1 : b === undefined ? 2 : 3;
-        if(status !== 0){
-            result.push({ left: a, right: b, path, status });
-        }
-    } else {
-        COMPARE[t](a, b, result, path, trap)
-    }
-}
-
-const compare = (a, b) => {
-    let r = [];
-    _compare(a, b, r);
-    return r;
-};
-
-const CIRCULA = Symbol('-CIRCULA-');
-const CirculaMap = class {
-    constructor(){
-        this.list = [];
-    }
-    add(source, key, target){
-        this.list.push({ source, key, target })
-    }
-    fix(trap){
-        this.list.forEach(({ source, key, target }) => {
-            let tr = trap.find(([s, v]) => s === source);
-            target[key] = tr[1];
-        })
-    }
-};
-const CLONE = {
-    'Array': (v, trap, cir) => {
-        let r = [];
-        v.forEach((vv, i) => {
-            r[i] = _clone(vv, trap, cir);
-            if(r[i] === CIRCULA){
-                cir.add(vv, i, r);
-            }
-        });
-        return r;
-    },
-    'Object': (v, trap, cir) => {
-        let r = {};
-        Object.keys(v).forEach(i => {
-            r[i] = _clone(v[i], trap, cir);
-            if(r[i] === CIRCULA){
-                cir.add(v[i], i, r);
-            }
-        })
-        return r;
-    }
-};
-const _clone = (v, trap, cir) => {
-    if(trap.findIndex(o => o[0] === v) > -1){
-        return CIRCULA;
-    }
-    let t = T(v);
-    if(t in CLONE){
-        let tr = [v];
-        trap.push(tr);
-        let r = CLONE[t](v, trap, cir);
-        tr.push(r);
-        return r;
-    } else {
-        return v;
-    }
-}
-
-const clone = (v) => {
-    let cir = new CirculaMap();
-    let trap = [];
-    let r = _clone(v, trap, cir);
-    cir.fix(trap);
-    trap = cir = null;
-    return r;
-};
-
-const check = (schema, target) => {
-    let diff = compare(schema, target);
-    let r = { diff, result: diff.length < 1, type: '' };
-    if(diff.length > 0){
-        if(diff.length === 1 && diff[0].path.length === 0){
-            r.type = 'root';
-        } else {
-            r.type = 'branch'
-        }
-    };
-    return r;
-};
+const { O, T, TT } = require('./t');
 
 const GENERATE = {
 };
 
-const generate = (path) => {
+const generate_empty = key => typeof(key) === 'string' ? {} : [];
 
+const generate_item = (item, root) => {
+    let { left, right, status, path } = item;
+    if(path.length < 1) {
+        return;
+    }
+    let p = path.slice(0);
+    let key = p.shift(), k = key;
+    if(!root){
+        root = generate_empty(key);
+    }
+    let tar = root;
+    while(p.length > 0){
+        k = p.shift();
+        if(!tar.hasOwnProperty(key)){
+            tar[key] = generate_empty(k);
+        }
+        tar = tar[key];
+        key = k;
+    }
+    let val;
+    switch(status){
+        case 1:
+        case 3:
+            val = right;
+            break;
+        default:
+            val = left;
+            break;
+    }
+    tar[key] = val;
+    return root;
 }
+
+const generate_diff = (diff) => {
+    console.log(diff)
+    return diff.reduce((a, b) => generate_item(b, a), false);
+}
+
+let keyS = Symbol('-test-');
+
+let a = { zz: undefined, aa: 1, bb: '222', cc: [1,2,3,{aaa:1}], dd: 4 };
+let b = { aa: 1, bb: 3, cc: [2,3,3,{aaa:1,bbb:2}] };
+// a.zz = a;
+// a[keyS] = b;
+
+// a = [1,2,3];
+// b = [2,3,4]
+// console.log(generate_diff(check(a, b).diff))
+
+const INVALID = Object.create(null);
+const isNil = v => v === null || v === undefined;
+const _pick = (target, item, cursor) => {
+    if(isNil(target)){
+        return { status: 'nil', value: item.value };
+    } else if(target === INVALID){
+        return { status: 'invalid', value: item.value };
+    }
+    let { path } = item;
+    if(cursor < path.length){
+        let key = path[cursor];
+        let value = target.hasOwnProperty(key) ? target[key] : INVALID;
+        return _pick(value, item, cursor + 1);
+    } else {
+        return { status: 'ok', value: target, type: T(target) };
+    }
+}
+const pick = (target, item) => _pick(target, item, 0);
+
+class Scheme {
+    constructor(scheme){
+        this.scheme = path(scheme).filter(({ value }) => typeof(value) !== 'undefined');
+    }
+
+    pick(target){
+        let map = this.scheme.map(scheme => {
+            return {
+                scheme,
+                source: pick(target, scheme)
+            }
+        });
+        console.log(map)
+    }
+}
+
+console.log('path', path(a))
+
+let scheme = new Scheme(a);
+
+scheme.pick(b);
+
+// path(a).filter(item => typeof(item.value) !== 'undefined').forEach(item => {
+//     console.log('pick', pick(b, item))
+// })
+
+
+// console.log(path([1,2,null,,undefined,3]))
 
 module.exports = {
     clone,
