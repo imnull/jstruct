@@ -1,9 +1,8 @@
-const { T } = require('./t');
+const { T, isNil, isInvalid } = require('./t');
 const path = require('./path');
 
 const INVALID = Object.create(null);
-const isNil = v => v === null || v === undefined;
-const isInvalid = v => isNil(v) || (typeof(v) === 'number' && isNaN(v));
+
 const _pick = (target, item, cursor) => {
     if(isNil(target)){
         return { status: 'nil', value: item.value };
@@ -38,7 +37,7 @@ const CONVERT = {
         return isNil(value) || isNaN(value = Number(value)) ? defaultValue : value;
     },
     'String': (value, defaultValue) => {
-        if(isNil(value) || (typeof(value) === 'number' && isNaN(value))){
+        if(isInvalid(value)){
             return defaultValue;
         }
         return value.toString();
@@ -47,24 +46,31 @@ const CONVERT = {
 
 class Scheme {
     constructor(scheme, conv = {}){
+        this.initScheme(scheme);
+        this.initConv(conv);
+    }
+
+    initScheme(scheme){
         this.scheme = path(scheme).filter(({ value }) => typeof(value) !== 'undefined');
+    }
+    initConv(conv){
         this.conv = { ...CONVERT, ...conv };
     }
 
     pick(target){
-        let r;
+        let r, { conv } = this;
         this.scheme.forEach(scheme => {
             let source = _pick(target, scheme, 0);
-            console.log({ scheme, source })
-            let { value } = source, { path } = scheme;
+            // console.log({ scheme, source })
+            let { value } = source, { path, type } = scheme;
             // ** 取值转换 **
             // 成功取到分支值
             if(source.status === 'ok'){
                 // 如果类型不一致
-                if(source.type !== scheme.type){
+                if(source.type !== type){
                     //如果具备默认转换方法
-                    if(scheme.type in this.conv){
-                        value = this.conv[scheme.type](value, scheme.value);
+                    if(type in conv){
+                        value = conv[type](value, scheme.value, scheme.path);
                     }
                 }
             }
